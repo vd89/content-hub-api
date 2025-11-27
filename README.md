@@ -12,6 +12,24 @@
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
+## 🎯 Content Hub API - Enterprise Request Pipeline System
+
+This project demonstrates the complete NestJS request lifecycle through a practical blog/content management system with role-based access control. It showcases when to use Middleware, Guards, Interceptors, Pipes, and Exception Filters in real-world scenarios.
+
+### Key Features
+
+- JWT Authentication & Authorization
+- Role-based Access Control (Admin, Editor, Viewer)
+- Article CRUD Operations
+- Request Logging & Response Transformation
+- Caching for Frequently Accessed Content
+- Rate Limiting per User Role
+- Input Validation & Sanitization
+
+### 📚 Documentation
+
+For detailed project requirements, architecture, and implementation guide, see the [Project Requirements](./docs/Requirement.md).
+
 ## Project setup
 
 ```bash
@@ -62,6 +80,7 @@ With Mau, you can deploy your application in just a few clicks, allowing you to 
 Check out a few resources that may come in handy when working with NestJS:
 
 - Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
+- Read the [Project Requirements](./docs/Requirement.md) for detailed implementation guide.
 
 ## Support
 
