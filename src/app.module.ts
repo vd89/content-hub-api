@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -9,6 +10,7 @@ import { AppService } from './app.service';
       isGlobal: true, // Makes the config module global
       envFilePath: '.env', // Path to your .env file
     }),
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
