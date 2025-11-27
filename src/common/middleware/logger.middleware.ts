@@ -15,8 +15,12 @@ export class LoggerMiddleware implements NestMiddleware {
     this.logger.log(`[${requestId}] Incoming: ${method} ${originalUrl} - UserAgent: ${userAgent}`);
 
     if (body && Object.keys(body).length > 0) {
-      const sanitizedBody = this.sanitizeBody(body);
-      this.logger.debug(`[${requestId}] Body: ${JSON.stringify(sanitizedBody)}`);
+      try {
+        const sanitizedBody = this.sanitizeBody(body, new WeakSet());
+        this.logger.debug(`[${requestId}] Body: ${JSON.stringify(sanitizedBody)}`);
+      } catch {
+        this.logger.debug(`[${requestId}] Body: [Unable to serialize - circular reference detected]`);
+      }
     }
 
     res.on('finish', () => {
@@ -37,7 +41,17 @@ export class LoggerMiddleware implements NestMiddleware {
     next();
   }
 
-  private sanitizeBody(body: Record<string, unknown>): Record<string, unknown> {
+  private sanitizeBody(
+    body: Record<string, unknown>,
+    visited: WeakSet<object> = new WeakSet(),
+  ): Record<string, unknown> {
+    // Check for circular reference
+    if (visited.has(body)) {
+      return { '[Circular]': true };
+    }
+
+    visited.add(body);
+
     const sensitiveFields = ['password', 'token', 'secret', 'authorization', 'creditCard', 'cvv'];
     const sanitized = { ...body };
 
@@ -49,8 +63,9 @@ export class LoggerMiddleware implements NestMiddleware {
 
     // Handle nested objects
     for (const key of Object.keys(sanitized)) {
-      if (typeof sanitized[key] === 'object' && sanitized[key] !== null && !Array.isArray(sanitized[key])) {
-        sanitized[key] = this.sanitizeBody(sanitized[key] as Record<string, unknown>);
+      const value = sanitized[key];
+      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        sanitized[key] = this.sanitizeBody(value as Record<string, unknown>, visited);
       }
     }
 
