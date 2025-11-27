@@ -7,6 +7,7 @@ import { ArticlesModule } from './articles/articles.module';
 import { UsersModule } from './users/users.module';
 import { CommonModule } from './common/common.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
+import { LoggerMiddleware } from './common/middleware/logger.middleware';
 
 @Module({
   imports: [
@@ -24,6 +25,6 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(RequestIdMiddleware).forRoutes('*');
+    consumer.apply(RequestIdMiddleware, LoggerMiddleware).forRoutes('*');
   }
 }
