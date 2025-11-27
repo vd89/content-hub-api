@@ -9,7 +9,7 @@ export class LoggerMiddleware implements NestMiddleware {
     const { method, originalUrl, headers } = req;
     const body = req.body as Record<string, unknown>;
     const userAgent = headers['user-agent'] || 'unknown';
-    const requestId = ((req as Record<string, unknown>)['requestId'] as string) || 'no-request-id';
+    const requestId = ((req as unknown as Record<string, unknown>)['requestId'] as string) || 'no-request-id';
     const startTime = Date.now();
 
     this.logger.log(`[${requestId}] Incoming: ${method} ${originalUrl} - UserAgent: ${userAgent}`);
