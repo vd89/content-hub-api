@@ -486,6 +486,54 @@ describe('LoggerMiddleware', () => {
 
       expect(loggerLogSpy).toHaveBeenCalledWith(expect.stringContaining(longUrl));
     });
+
+    it('should handle JSON serialization errors gracefully', () => {
+      // Create an object that will cause JSON.stringify to throw
+      const problematicObj: Record<string, unknown> = {
+        name: 'test',
+        toJSON: () => {
+          throw new Error('JSON serialization error');
+        },
+      };
+
+      mockRequest = {
+        method: 'POST',
+        originalUrl: '/api/error',
+        headers: {},
+        body: problematicObj,
+      } as Request;
+
+      expect(() => {
+        middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
+      }).not.toThrow();
+
+      // Should log the error message
+      expect(loggerDebugSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[Unable to serialize - circular reference detected]'),
+      );
+    });
+
+    it('should handle objects with BigInt values', () => {
+      // BigInt cannot be serialized by JSON.stringify
+      const bigIntObj: Record<string, unknown> = {
+        name: 'test',
+        bigNumber: BigInt(9007199254740991),
+      };
+
+      mockRequest = {
+        method: 'POST',
+        originalUrl: '/api/bigint',
+        headers: {},
+        body: bigIntObj,
+      } as Request;
+
+      middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
+
+      // Should log the error message for serialization failure
+      expect(loggerDebugSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[Unable to serialize - circular reference detected]'),
+      );
+    });
   });
 
   describe('Multiple Requests', () => {
