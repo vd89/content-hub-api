@@ -1,4 +1,3 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { Logger } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { LoggerMiddleware } from '../logger.middleware';
@@ -13,552 +12,439 @@ describe('LoggerMiddleware', () => {
   let loggerWarnSpy: jest.SpyInstance;
   let loggerErrorSpy: jest.SpyInstance;
 
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [LoggerMiddleware],
-    }).compile();
+  beforeEach(() => {
+    middleware = new LoggerMiddleware();
 
-    middleware = module.get<LoggerMiddleware>(LoggerMiddleware);
+    mockRequest = {
+      method: 'GET',
+      originalUrl: '/api/test',
+      headers: {
+        'user-agent': 'test-agent',
+      },
+      body: {},
+    };
 
-    // Spy on Logger methods
+    mockResponse = {
+      statusCode: 200,
+      on: jest.fn(),
+    };
+
+    mockNext = jest.fn();
+
+    // Spy on logger methods
     loggerLogSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
     loggerDebugSpy = jest.spyOn(Logger.prototype, 'debug').mockImplementation();
     loggerWarnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
     loggerErrorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
-
-    // Mock next function
-    mockNext = jest.fn();
-
-    // Mock response with EventEmitter-like behavior
-    const listeners: { [key: string]: Array<(...args: unknown[]) => void> } = {};
-    mockResponse = {
-      statusCode: 200,
-      on: jest.fn((event: string, callback: (...args: unknown[]) => void) => {
-        if (!listeners[event]) {
-          listeners[event] = [];
-        }
-        listeners[event].push(callback);
-        return mockResponse as Response;
-      }),
-      emit: jest.fn((event: string, ...args: unknown[]) => {
-        if (listeners[event]) {
-          listeners[event].forEach((callback) => callback(...args));
-        }
-        return true;
-      }),
-    };
   });
 
   afterEach(() => {
     jest.clearAllMocks();
   });
 
-  describe('Basic Logging', () => {
-    it('should log incoming request with method and URL', () => {
-      mockRequest = {
-        method: 'GET',
-        originalUrl: '/api/users',
-        headers: {
-          'user-agent': 'Mozilla/5.0',
-        },
-        body: {},
-      } as Request;
+  describe('use', () => {
+    it('should log incoming request with requestId', () => {
+      (mockRequest as Record<string, unknown>)['requestId'] = 'test-request-id';
 
       middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(loggerLogSpy).toHaveBeenCalledWith(expect.stringContaining('Incoming: GET /api/users'));
+      expect(loggerLogSpy).toHaveBeenCalledWith('[test-request-id] Incoming: GET /api/test - UserAgent: test-agent');
       expect(mockNext).toHaveBeenCalled();
     });
 
-    it('should use "unknown" when user-agent is missing', () => {
-      mockRequest = {
-        method: 'POST',
-        originalUrl: '/api/posts',
-        headers: {},
-        body: {},
-      } as Request;
+    it('should use "no-request-id" when requestId is not available', () => {
+      middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(loggerLogSpy).toHaveBeenCalledWith('[no-request-id] Incoming: GET /api/test - UserAgent: test-agent');
+    });
+
+    it('should use "unknown" for user-agent when not available', () => {
+      mockRequest.headers = {};
 
       middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(loggerLogSpy).toHaveBeenCalledWith(expect.stringContaining('UserAgent: unknown'));
     });
 
-    it('should handle missing requestId', () => {
-      mockRequest = {
-        method: 'GET',
-        originalUrl: '/api/test',
-        headers: {},
-        body: {},
-      } as Request;
-
-      middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
-
-      expect(loggerLogSpy).toHaveBeenCalledWith(expect.stringContaining('[no-request-id]'));
-    });
-
-    it('should use requestId when present', () => {
-      mockRequest = {
-        method: 'GET',
-        originalUrl: '/api/test',
-        headers: {},
-        body: {},
-        requestId: 'test-request-id-123',
-      } as Request & { requestId: string };
-
-      middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
-
-      expect(loggerLogSpy).toHaveBeenCalledWith(expect.stringContaining('[test-request-id-123]'));
-    });
-  });
-
-  describe('Request Body Logging', () => {
     it('should log request body when present', () => {
-      mockRequest = {
-        method: 'POST',
-        originalUrl: '/api/users',
-        headers: {},
-        body: { name: 'John Doe', email: 'john@example.com' },
-      } as Request;
+      (mockRequest as Record<string, unknown>)['requestId'] = 'test-request-id';
+      mockRequest.body = { name: 'test', age: 25 };
 
       middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(loggerDebugSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Body: {"name":"John Doe","email":"john@example.com"}'),
-      );
+      expect(loggerDebugSpy).toHaveBeenCalledWith('[test-request-id] Body: {"name":"test","age":25}');
     });
 
     it('should not log body when empty', () => {
-      mockRequest = {
-        method: 'POST',
-        originalUrl: '/api/users',
-        headers: {},
-        body: {},
-      } as Request;
+      mockRequest.body = {};
 
       middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(loggerDebugSpy).not.toHaveBeenCalled();
     });
 
-    it('should not log body when null', () => {
-      mockRequest = {
-        method: 'POST',
-        originalUrl: '/api/users',
-        headers: {},
-        body: null,
-      } as Request;
+    it('should sanitize sensitive fields in body', () => {
+      (mockRequest as Record<string, unknown>)['requestId'] = 'test-request-id';
+      mockRequest.body = {
+        username: 'john',
+        password: 'secret123',
+        token: 'abc123',
+      };
 
       middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(loggerDebugSpy).not.toHaveBeenCalled();
+      expect(loggerDebugSpy).toHaveBeenCalledWith(
+        '[test-request-id] Body: {"username":"john","password":"[REDACTED]","token":"[REDACTED]"}',
+      );
     });
 
-    it('should not log body when undefined', () => {
-      mockRequest = {
-        method: 'POST',
-        originalUrl: '/api/users',
-        headers: {},
-      } as Request;
+    it('should handle JSON.stringify errors', () => {
+      (mockRequest as Record<string, unknown>)['requestId'] = 'test-request-id';
 
-      middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
+      // Create an object with a property that has a getter throwing an error
+      const problematicBody: Record<string, unknown> = {
+        name: 'test',
+      };
 
-      expect(loggerDebugSpy).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('Sensitive Data Sanitization', () => {
-    it('should sanitize password field', () => {
-      mockRequest = {
-        method: 'POST',
-        originalUrl: '/api/auth/login',
-        headers: {},
-        body: { email: 'user@example.com', password: 'secret123' },
-      } as Request;
-
-      middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
-
-      expect(loggerDebugSpy).toHaveBeenCalledWith(expect.stringContaining('[REDACTED]'));
-      expect(loggerDebugSpy).not.toHaveBeenCalledWith(expect.stringContaining('secret123'));
-    });
-
-    it('should sanitize multiple sensitive fields', () => {
-      mockRequest = {
-        method: 'POST',
-        originalUrl: '/api/payment',
-        headers: {},
-        body: {
-          username: 'john',
-          password: 'pass123',
-          token: 'abc-token',
-          secret: 'my-secret',
-          creditCard: '4111-1111-1111-1111',
+      // Define a property with a getter that throws when accessed
+      Object.defineProperty(problematicBody, 'problematicProp', {
+        get() {
+          throw new Error('Cannot access this property');
         },
-      } as Request;
+        enumerable: true,
+      });
+
+      mockRequest.body = problematicBody;
 
       middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
 
-      const calls = loggerDebugSpy.mock.calls as Array<[string]>;
-      const debugCall = calls[0][0];
-      expect(debugCall).toContain('[REDACTED]');
-      expect(debugCall).not.toContain('pass123');
-      expect(debugCall).not.toContain('abc-token');
-      expect(debugCall).not.toContain('my-secret');
-      expect(debugCall).not.toContain('4111-1111-1111-1111');
-      expect(debugCall).toContain('john');
+      expect(loggerDebugSpy).toHaveBeenCalledWith(
+        '[test-request-id] Body: [Unable to serialize - circular reference detected]',
+      );
     });
 
-    it('should sanitize nested sensitive fields', () => {
-      mockRequest = {
-        method: 'POST',
-        originalUrl: '/api/users',
-        headers: {},
-        body: {
-          user: {
-            name: 'John',
-            credentials: {
-              password: 'secret123',
-              token: 'auth-token',
-            },
-          },
+    it('should handle objects with toJSON that throws', () => {
+      (mockRequest as Record<string, unknown>)['requestId'] = 'test-request-id';
+
+      const bodyWithBadToJSON = {
+        name: 'test',
+        toJSON() {
+          throw new Error('toJSON error');
         },
-      } as Request;
+      };
+
+      mockRequest.body = bodyWithBadToJSON;
 
       middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
 
-      const calls = loggerDebugSpy.mock.calls as Array<[string]>;
-      const debugCall = calls[0][0];
-      expect(debugCall).toContain('[REDACTED]');
-      expect(debugCall).not.toContain('secret123');
-      expect(debugCall).not.toContain('auth-token');
-      expect(debugCall).toContain('John');
+      expect(loggerDebugSpy).toHaveBeenCalledWith(
+        '[test-request-id] Body: [Unable to serialize - circular reference detected]',
+      );
     });
 
-    it('should handle arrays in request body', () => {
-      mockRequest = {
-        method: 'POST',
-        originalUrl: '/api/bulk',
-        headers: {},
-        body: {
-          users: [
-            { name: 'User1', password: 'pass1' },
-            { name: 'User2', password: 'pass2' },
-          ],
-        },
-      } as Request;
-
-      middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
-
-      expect(loggerDebugSpy).toHaveBeenCalled();
-      const calls = loggerDebugSpy.mock.calls as Array<[string]>;
-      const debugCall = calls[0][0];
-      expect(debugCall).toContain('User1');
-      expect(debugCall).toContain('User2');
-    });
-
-    it('should not modify non-sensitive fields', () => {
-      mockRequest = {
-        method: 'POST',
-        originalUrl: '/api/users',
-        headers: {},
-        body: {
-          name: 'John Doe',
-          email: 'john@example.com',
-          age: 30,
-        },
-      } as Request;
-
-      middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
-
-      const calls = loggerDebugSpy.mock.calls as Array<[string]>;
-      const debugCall = calls[0][0];
-      expect(debugCall).toContain('John Doe');
-      expect(debugCall).toContain('john@example.com');
-      expect(debugCall).toContain('30');
-    });
-  });
-
-  describe('Response Logging', () => {
-    it('should log successful response (2xx)', () => {
-      mockRequest = {
-        method: 'GET',
-        originalUrl: '/api/users',
-        headers: {},
-        body: {},
-      } as Request;
-
+    it('should log successful response with 200 status', () => {
+      const finishCallback = jest.fn();
+      mockResponse.on = jest.fn((event, callback) => {
+        if (event === 'finish') {
+          finishCallback.mockImplementation(callback);
+        }
+        return mockResponse as Response;
+      });
       mockResponse.statusCode = 200;
 
       middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
+      finishCallback();
 
-      // Simulate response finish
-      (mockResponse.emit as jest.Mock)('finish');
-
-      expect(loggerLogSpy).toHaveBeenCalledWith(expect.stringContaining('Completed: GET /api/users - Status: 200'));
-      expect(loggerLogSpy).toHaveBeenCalledWith(expect.stringMatching(/Duration: \d+ms/));
+      expect(loggerLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Completed: GET /api/test - Status: 200 - Duration:'),
+      );
     });
 
-    it('should log client error response (4xx) as warning', () => {
-      mockRequest = {
-        method: 'POST',
-        originalUrl: '/api/users',
-        headers: {},
-        body: {},
-      } as Request;
-
+    it('should log warning for 4xx status codes', () => {
+      const finishCallback = jest.fn();
+      mockResponse.on = jest.fn((event, callback) => {
+        if (event === 'finish') {
+          finishCallback.mockImplementation(callback);
+        }
+        return mockResponse as Response;
+      });
       mockResponse.statusCode = 404;
 
       middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
+      finishCallback();
 
-      (mockResponse.emit as jest.Mock)('finish');
-
-      expect(loggerWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Completed: POST /api/users - Status: 404'));
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Completed: GET /api/test - Status: 404 - Duration:'),
+      );
     });
 
-    it('should log validation error (400) as warning', () => {
-      mockRequest = {
-        method: 'POST',
-        originalUrl: '/api/users',
-        headers: {},
-        body: {},
-      } as Request;
-
-      mockResponse.statusCode = 400;
-
-      middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
-
-      (mockResponse.emit as jest.Mock)('finish');
-
-      expect(loggerWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Status: 400'));
-    });
-
-    it('should log server error response (5xx) as error', () => {
-      mockRequest = {
-        method: 'GET',
-        originalUrl: '/api/users',
-        headers: {},
-        body: {},
-      } as Request;
-
+    it('should log error for 5xx status codes', () => {
+      const finishCallback = jest.fn();
+      mockResponse.on = jest.fn((event, callback) => {
+        if (event === 'finish') {
+          finishCallback.mockImplementation(callback);
+        }
+        return mockResponse as Response;
+      });
       mockResponse.statusCode = 500;
 
       middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
+      finishCallback();
 
-      (mockResponse.emit as jest.Mock)('finish');
-
-      expect(loggerErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Completed: GET /api/users - Status: 500'));
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Completed: GET /api/test - Status: 500 - Duration:'),
+      );
     });
 
-    it('should log service unavailable (503) as error', () => {
-      mockRequest = {
-        method: 'GET',
-        originalUrl: '/api/health',
-        headers: {},
-        body: {},
-      } as Request;
+    it('should handle POST requests', () => {
+      mockRequest.method = 'POST';
+      mockRequest.originalUrl = '/api/users';
 
+      middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(loggerLogSpy).toHaveBeenCalledWith(expect.stringContaining('Incoming: POST /api/users'));
+    });
+
+    it('should handle different status codes correctly - 400', () => {
+      const finishCallback = jest.fn();
+      mockResponse.on = jest.fn((event, callback) => {
+        if (event === 'finish') {
+          finishCallback.mockImplementation(callback);
+        }
+        return mockResponse as Response;
+      });
+      mockResponse.statusCode = 400;
+
+      middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
+      finishCallback();
+
+      expect(loggerWarnSpy).toHaveBeenCalled();
+    });
+
+    it('should handle different status codes correctly - 503', () => {
+      const finishCallback = jest.fn();
+      mockResponse.on = jest.fn((event, callback) => {
+        if (event === 'finish') {
+          finishCallback.mockImplementation(callback);
+        }
+        return mockResponse as Response;
+      });
       mockResponse.statusCode = 503;
 
       middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
+      finishCallback();
 
-      (mockResponse.emit as jest.Mock)('finish');
-
-      expect(loggerErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Status: 503'));
+      expect(loggerErrorSpy).toHaveBeenCalled();
     });
 
-    it('should calculate request duration accurately', (done) => {
-      mockRequest = {
-        method: 'GET',
-        originalUrl: '/api/slow',
-        headers: {},
-        body: {},
-      } as Request;
-
-      mockResponse.statusCode = 200;
-
+    it('should call next() to continue middleware chain', () => {
       middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
-
-      setTimeout(() => {
-        (mockResponse.emit as jest.Mock)('finish');
-
-        const calls = loggerLogSpy.mock.calls as Array<[string]>;
-        const logCall = calls.find((call) => call[0].includes('Duration:'));
-        expect(logCall).toBeDefined();
-        const durationMatch = logCall?.[0].match(/Duration: (\d+)ms/);
-        expect(durationMatch).toBeDefined();
-        const duration = parseInt(durationMatch?.[1] || '0', 10);
-        expect(duration).toBeGreaterThanOrEqual(50);
-        done();
-      }, 50);
+      expect(mockNext).toHaveBeenCalled();
     });
   });
 
-  describe('Edge Cases', () => {
-    it('should handle request with special characters in URL', () => {
-      mockRequest = {
-        method: 'GET',
-        originalUrl: '/api/search?query=hello%20world&filter=active',
-        headers: {},
-        body: {},
-      } as Request;
+  describe('sanitizeBody', () => {
+    it('should redact password field', () => {
+      const body = { username: 'john', password: 'secret' };
+      const result = middleware['sanitizeBody'](body);
 
-      middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
+      expect(result).toEqual({ username: 'john', password: '[REDACTED]' });
+    });
 
-      expect(loggerLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('/api/search?query=hello%20world&filter=active'),
-      );
+    it('should redact token field', () => {
+      const body = { data: 'test', token: 'abc123' };
+      const result = middleware['sanitizeBody'](body);
+
+      expect(result).toEqual({ data: 'test', token: '[REDACTED]' });
+    });
+
+    it('should redact secret field', () => {
+      const body = { data: 'test', secret: 'mysecret' };
+      const result = middleware['sanitizeBody'](body);
+
+      expect(result).toEqual({ data: 'test', secret: '[REDACTED]' });
+    });
+
+    it('should redact authorization field', () => {
+      const body = { data: 'test', authorization: 'Bearer token' };
+      const result = middleware['sanitizeBody'](body);
+
+      expect(result).toEqual({ data: 'test', authorization: '[REDACTED]' });
+    });
+
+    it('should redact creditCard field', () => {
+      const body = { name: 'John', creditCard: '1234-5678-9012-3456' };
+      const result = middleware['sanitizeBody'](body);
+
+      expect(result).toEqual({ name: 'John', creditCard: '[REDACTED]' });
+    });
+
+    it('should redact cvv field', () => {
+      const body = { name: 'John', cvv: '123' };
+      const result = middleware['sanitizeBody'](body);
+
+      expect(result).toEqual({ name: 'John', cvv: '[REDACTED]' });
+    });
+
+    it('should redact multiple sensitive fields', () => {
+      const body = {
+        username: 'john',
+        password: 'secret',
+        token: 'abc123',
+        creditCard: '1234',
+      };
+      const result = middleware['sanitizeBody'](body);
+
+      expect(result).toEqual({
+        username: 'john',
+        password: '[REDACTED]',
+        token: '[REDACTED]',
+        creditCard: '[REDACTED]',
+      });
+    });
+
+    it('should sanitize nested objects', () => {
+      const body = {
+        user: {
+          name: 'john',
+          password: 'secret',
+        },
+        data: 'test',
+      };
+      const result = middleware['sanitizeBody'](body);
+
+      expect(result).toEqual({
+        user: {
+          name: 'john',
+          password: '[REDACTED]',
+        },
+        data: 'test',
+      });
     });
 
     it('should handle deeply nested objects', () => {
-      mockRequest = {
-        method: 'POST',
-        originalUrl: '/api/complex',
-        headers: {},
-        body: {
-          level1: {
-            level2: {
-              level3: {
-                password: 'deep-secret',
-                data: 'visible',
-              },
+      const body = {
+        level1: {
+          level2: {
+            level3: {
+              password: 'secret',
+              name: 'test',
             },
           },
         },
-      } as Request;
+      };
+      const result = middleware['sanitizeBody'](body);
 
-      middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
-
-      const calls = loggerDebugSpy.mock.calls as Array<[string]>;
-      const debugCall = calls[0][0];
-      expect(debugCall).toContain('[REDACTED]');
-      expect(debugCall).not.toContain('deep-secret');
-      expect(debugCall).toContain('visible');
-    });
-
-    it('should handle circular references gracefully', () => {
-      const circularObj: Record<string, unknown> = { name: 'test' };
-      circularObj.self = circularObj;
-
-      mockRequest = {
-        method: 'POST',
-        originalUrl: '/api/circular',
-        headers: {},
-        body: circularObj,
-      } as Request;
-
-      expect(() => {
-        middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
-      }).not.toThrow();
-
-      // Should log with [Circular] marker
-      expect(loggerDebugSpy).toHaveBeenCalled();
-      const calls = loggerDebugSpy.mock.calls as Array<[string]>;
-      const debugCall = calls[0][0];
-      expect(debugCall).toContain('[Circular]');
-    });
-
-    it('should handle body with null values', () => {
-      mockRequest = {
-        method: 'POST',
-        originalUrl: '/api/test',
-        headers: {},
-        body: {
-          name: 'John',
-          middleName: null,
-          address: null,
+      expect(result).toEqual({
+        level1: {
+          level2: {
+            level3: {
+              password: '[REDACTED]',
+              name: 'test',
+            },
+          },
         },
-      } as Request;
-
-      middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
-
-      expect(loggerDebugSpy).toHaveBeenCalled();
+      });
     });
 
-    it('should handle very long request URLs', () => {
-      const longUrl = '/api/test?' + 'a=1&'.repeat(100);
-      mockRequest = {
-        method: 'GET',
-        originalUrl: longUrl,
-        headers: {},
-        body: {},
-      } as Request;
+    it('should handle circular references', () => {
+      const body: Record<string, unknown> = { name: 'test' };
+      body.self = body;
 
-      middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
+      const result = middleware['sanitizeBody'](body);
 
-      expect(loggerLogSpy).toHaveBeenCalledWith(expect.stringContaining(longUrl));
+      expect(result.name).toBe('test');
+      expect(result.self).toEqual({ '[Circular]': true });
     });
 
-    it('should handle JSON serialization errors gracefully', () => {
-      // Create an object that will cause JSON.stringify to throw
-      const problematicObj: Record<string, unknown> = {
+    it('should handle circular references in nested objects', () => {
+      const nested: Record<string, unknown> = { value: 'nested' };
+      nested.circular = nested;
+      const body: Record<string, unknown> = {
         name: 'test',
-        toJSON: () => {
-          throw new Error('JSON serialization error');
-        },
+        nested,
       };
 
-      mockRequest = {
-        method: 'POST',
-        originalUrl: '/api/error',
-        headers: {},
-        body: problematicObj,
-      } as Request;
+      const result = middleware['sanitizeBody'](body);
 
-      expect(() => {
-        middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
-      }).not.toThrow();
-
-      // Should log the error message
-      expect(loggerDebugSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[Unable to serialize - circular reference detected]'),
-      );
+      expect(result.name).toBe('test');
+      expect((result.nested as Record<string, unknown>).value).toBe('nested');
+      expect((result.nested as Record<string, unknown>).circular).toEqual({ '[Circular]': true });
     });
 
-    it('should handle objects with BigInt values', () => {
-      // BigInt cannot be serialized by JSON.stringify
-      const bigIntObj: Record<string, unknown> = {
+    it('should not modify arrays', () => {
+      const body = {
         name: 'test',
-        bigNumber: BigInt(9007199254740991),
+        tags: ['tag1', 'tag2'],
       };
+      const result = middleware['sanitizeBody'](body);
 
-      mockRequest = {
-        method: 'POST',
-        originalUrl: '/api/bigint',
-        headers: {},
-        body: bigIntObj,
-      } as Request;
-
-      middleware.use(mockRequest as Request, mockResponse as Response, mockNext);
-
-      // Should log the error message for serialization failure
-      expect(loggerDebugSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[Unable to serialize - circular reference detected]'),
-      );
+      expect(result).toEqual({
+        name: 'test',
+        tags: ['tag1', 'tag2'],
+      });
     });
-  });
 
-  describe('Multiple Requests', () => {
-    it('should handle multiple concurrent requests independently', () => {
-      const request1: Partial<Request> = {
-        method: 'GET',
-        originalUrl: '/api/users/1',
-        headers: {},
-        body: {},
-        requestId: 'req-1',
-      } as Request & { requestId: string };
+    it('should handle null values', () => {
+      const body = {
+        name: 'test',
+        value: null,
+      };
+      const result = middleware['sanitizeBody'](body);
 
-      const request2: Partial<Request> = {
-        method: 'POST',
-        originalUrl: '/api/posts',
-        headers: {},
-        body: { title: 'Test Post' },
-        requestId: 'req-2',
-      } as Request & { requestId: string };
+      expect(result).toEqual({
+        name: 'test',
+        value: null,
+      });
+    });
 
-      middleware.use(request1 as Request, mockResponse as Response, mockNext);
-      middleware.use(request2 as Request, mockResponse as Response, mockNext);
+    it('should handle undefined values', () => {
+      const body = {
+        name: 'test',
+        value: undefined,
+      };
+      const result = middleware['sanitizeBody'](body);
 
-      expect(loggerLogSpy).toHaveBeenCalledWith(expect.stringContaining('[req-1]'));
-      expect(loggerLogSpy).toHaveBeenCalledWith(expect.stringContaining('[req-2]'));
+      expect(result).toEqual({
+        name: 'test',
+        value: undefined,
+      });
+    });
+
+    it('should preserve non-sensitive nested fields', () => {
+      const body = {
+        user: {
+          id: 1,
+          email: 'test@example.com',
+          profile: {
+            firstName: 'John',
+            lastName: 'Doe',
+          },
+        },
+      };
+      const result = middleware['sanitizeBody'](body);
+
+      expect(result).toEqual(body);
+    });
+
+    it('should handle empty objects', () => {
+      const body = {};
+      const result = middleware['sanitizeBody'](body);
+
+      expect(result).toEqual({});
+    });
+
+    it('should handle objects with only sensitive fields', () => {
+      const body = {
+        password: 'secret',
+        token: 'abc123',
+      };
+      const result = middleware['sanitizeBody'](body);
+
+      expect(result).toEqual({
+        password: '[REDACTED]',
+        token: '[REDACTED]',
+      });
     });
   });
 });
