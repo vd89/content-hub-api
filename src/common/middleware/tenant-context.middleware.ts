@@ -46,10 +46,12 @@ export class TenantContextMiddleware implements NestMiddleware {
 
   private extractTenantContext(req: Request): TenantContext | null {
     // Priority 1: Check x-tenant-id header (useful for API clients)
-    const headerTenantId = req.headers['x-tenant-id'] as string;
+    const headerTenantId = req.headers['x-tenant-id'];
     if (headerTenantId) {
+      // Handle array header values by taking the first element
+      const tenantId = Array.isArray(headerTenantId) ? headerTenantId[0] : headerTenantId;
       return {
-        tenantId: headerTenantId,
+        tenantId,
         source: 'header',
       };
     }
