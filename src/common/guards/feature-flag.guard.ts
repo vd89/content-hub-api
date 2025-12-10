@@ -38,7 +38,25 @@ export class FeatureFlagGuard implements CanActivate {
   private isFeatureEnabled(flag: string, tenantId?: string): boolean {
     // Simple implementation - replace with actual feature flag service
     // Could check tenant-specific flags, user flags, etc.
-    console.log('Checking feature flag for tenant:', tenantId);
-    return this.enabledFeatures.has(flag);
+    // console.log('Checking feature flag for tenant:', tenantId);
+
+    // Check if feature is globally enabled
+    if (!this.enabledFeatures.has(flag)) {
+      return false;
+    }
+
+    // If tenantId is provided, apply tenant-specific logic
+    if (tenantId) {
+      // Example: Disable certain features for specific tenants
+      const disabledForTenants: Record<string, string[]> = {
+        'beta-reports': ['tenant-123'], // tenant-123 doesn't have access to beta-reports
+      };
+
+      if (disabledForTenants[flag]?.includes(tenantId)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 }
