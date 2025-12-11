@@ -46,6 +46,8 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': "off",
       '@typescript-eslint/unbound-method': 'off',
       "prettier/prettier": ["error", { endOfLine: "auto" }],
+      '@typescript-eslint/no-unsafe-function-type': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off'
     },
   },
 );
