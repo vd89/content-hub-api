@@ -16,10 +16,6 @@ module.exports = {
         'ci',       // CI/CD changes
         'build',    // Build system changes
         'revert',   // Revert previous commit
-        "main",     // Changes to main branch
-        "init",     // Initial commit
-        "config",    // Configuration changes
-        "setup"      // Setup related changes
       ],
     ],
     'subject-case': [0], // Allow any case in subject
